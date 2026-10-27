@@ -27,3 +27,8 @@ export const strList = (v: unknown, allowed?: Set<string> | readonly string[], m
   const allow = allowed ? new Set(allowed) : null;
   return [...new Set(v.filter((x): x is string => typeof x === "string" && x.length <= 120 && (!allow || allow.has(x))))].slice(0, max);
 };
+
+/** Runs the handler for an admin: 401 when signed out, 403 for everyone else. Checked on every call. */
+export async function withAdmin(fn: (admin: SessionUser) => Promise<Response>): Promise<Response> {
+  return withUser(async (user) => (user.role === "admin" ? fn(user) : fail("Admins only", 403)));
+}

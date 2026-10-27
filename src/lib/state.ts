@@ -1,31 +1,22 @@
 import "server-only";
+import { cache } from "react";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { SessionUser } from "./auth";
 
-/** The shape the client app works with (one object per signed-in student). */
-export interface ClientState {
-  profile: null | { name: string; uni: string; course: string; level: string; goals: string[]; interests: string[]; created: number };
-  explored: string[];
-  quiz: null | { top: string[]; traits: string[]; ts: string; at: number };
-  roadmap: Record<string, Record<string, true>>;
-  sims: Record<string, { best: number; last: number; attempts: number; at: number }>;
-  portfolio: PortfolioDTO[];
-  seenBadges: string[];
-}
-export interface PortfolioDTO {
-  id: string; source: string; title: string; problem: string; approach: string; skills: string; link: string;
-  evidence: string; career: string; public: boolean; created: number; updated: number;
-}
+import type { ClientState, PortfolioItem } from "./models";
 
-export function toPortfolioDTO(r: typeof schema.portfolioItems.$inferSelect): PortfolioDTO {
+export type { ClientState, PortfolioItem } from "./models";
+
+export function toPortfolioDTO(r: typeof schema.portfolioItems.$inferSelect): PortfolioItem {
   return {
     id: r.id, source: r.source, title: r.title, problem: r.problem, approach: r.approach, skills: r.skills, link: r.link,
     evidence: r.evidence, career: r.career, public: r.isPublic, created: r.createdAt.getTime(), updated: r.updatedAt.getTime(),
+    ...(r.hiddenAt ? { hidden: true } : {}),
   };
 }
 
-export async function loadState(user: SessionUser): Promise<ClientState> {
+export const loadState = cache(async function loadState(user: SessionUser): Promise<ClientState> {
   const db = await getDb();
   const uid = user.id;
   const [prof, progress, sims, items, earned] = await Promise.all([
@@ -57,7 +48,7 @@ export async function loadState(user: SessionUser): Promise<ClientState> {
     portfolio: items.map(toPortfolioDTO),
     seenBadges: earned.map((b) => b.id),
   };
-}
+});
 
 /** Make sure a profile row exists (created lazily, e.g. when exploring before onboarding). */
 export async function ensureProfile(userId: string) {

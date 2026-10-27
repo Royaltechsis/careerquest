@@ -44,30 +44,40 @@ Full-stack **Next.js** (App Router, TypeScript). The API is route handlers insid
 ```
 src/
   app/
-    [[...slug]]/page.tsx     app shell for all app views (server loads the user's state)
+    (app)/                   the student app: one route per screen, all sharing one layout
+      layout.tsx             loads the signed-in user's state on the server, wraps every screen in <AppProvider>
+      page.tsx               "/": landing page for visitors, dashboard for students
+      dashboard/ start/ me/ careers/ career/[id]/ quiz/ roadmaps/ roadmap/[id]/ challenges/ sim/[id]/ portfolio/
+    admin/                   admin panel (server components, guarded by role)
     login/, signup/          auth pages
     p/[username]/page.tsx    public portfolio (server-rendered)
-    api/                     route handlers (see API below)
-  client/
-    engine.js                interactive views + client-side router
-    sims.js                  the six simulations
-    sync.js                  optimistic saves: diffs state and calls the API
-  components/                Header, AuthForm, Boot
-  content/                   careers, roadmaps, quiz (typed content shared by server + client)
+    api/                     route handlers (see API below), incl. api/admin/*
+  components/
+    app/                     AppProvider (state, optimistic saves, toasts, badges), AppChrome (header, tab bar)
+    views/                   one component per screen: Dashboard, Careers, CareerProfile, Quiz, Roadmaps, SimView, Portfolio…
+    sims/                    the six simulations: Phishing, DataSim, UxAudit, ProductRank, DecisionSim (cloud + marketing)
+    admin/                   admin client widgets (action buttons, announcement form, nav)
+    ui.tsx                   Icon, Meter, Ring, Pill, CareerCard…
+  content/                   careers, roadmaps, quiz and simulation content (typed, shared by server + client)
   db/
-    schema.ts                Drizzle schema
-    bootstrap.ts             idempotent CREATE TABLE IF NOT EXISTS (auto-run on first DB call)
+    schema.ts                Drizzle schema (the source of the shared data types)
+    bootstrap.ts             idempotent CREATE TABLE / ADD COLUMN IF NOT EXISTS (auto-run on first DB call)
     index.ts                 DB client
-  lib/                       auth, state loader, API helpers
-drizzle/                     generated SQL migration (drizzle-kit)
+  lib/
+    models.ts                data models shared by client and server, derived from the Drizzle schema
+    scoring.ts               simulation scoring + answer validation, used by the UI and by POST /api/simulations
+    progress.ts              roadmap progress, skills, badges, recommendations, quiz scoring (pure functions)
+    sync.ts                  optimistic saves: diffs state and calls the API
+    auth.ts, guard.ts, admin.ts, state.ts, http.ts …
+drizzle/                     generated SQL migrations (drizzle-kit)
 tests/e2e.py                 end-to-end browser test
 ```
 
 ### Database tables
 
-`users`, `sessions`, `profiles` (onboarding answers, explored careers, quiz result), `roadmap_progress`, `simulation_attempts` (score, summary, skills), `portfolio_items` (public/private), `badges`.
+`users` (incl. `role`, `suspended_at`, `last_active_at`), `sessions`, `profiles` (onboarding answers, explored careers, quiz result), `roadmap_progress`, `simulation_attempts` (answers, server-computed score, summary, skills), `portfolio_items` (public/private, `hidden_at` for moderation), `badges`, `announcements`, `audit_log`.
 
-Career, roadmap and simulation **content** lives in code (`src/content`, `src/client/sims.js`). Only **user data** goes in the database.
+Career, roadmap and simulation **content** lives in code (`src/content`). Only **user data** goes in the database.
 
 ## Getting started (local)
 
@@ -94,12 +104,13 @@ npm run db:generate   # generate a SQL migration into ./drizzle after changing t
 |---|---|---|
 | `DATABASE_URL` | yes | Neon Postgres connection string (the **pooled** one is fine), e.g. `postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require` |
 | `SESSION_SECRET` | yes | Long random string used to sign session tokens. Generate with `openssl rand -base64 32` |
+| `ADMIN_EMAILS` | no | Comma-separated emails that become **admins** when they sign up or log in, e.g. `you@gmail.com,cofounder@gmail.com` |
 
 ## Deploy to Vercel
 
 1. Create a database at [neon.tech](https://neon.tech) and copy its connection string. Or skip this: in step 3 you can add Neon from Vercel's **Storage** tab, which sets `DATABASE_URL` for you.
 2. In Vercel, go to **Add New → Project** and import this repo. The framework is detected as **Next.js**, so keep the default build settings.
-3. Before you click Deploy, open **Environment Variables** and add `DATABASE_URL` and `SESSION_SECRET`.
+3. Before you click Deploy, open **Environment Variables** and add `DATABASE_URL`, `SESSION_SECRET` and (for the admin panel) `ADMIN_EMAILS`.
 4. Deploy. The tables are created automatically on the first sign-up.
 
 Every push to `main` redeploys.
@@ -118,27 +129,57 @@ All endpoints return JSON. Authenticated endpoints use the session cookie and an
 | PUT | `/api/profile` | `{ profile?: { name, uni, course, level, goals, interests }, explored?: string[] }` |
 | PUT | `/api/quiz` | `{ quiz: { top, traits, ts } }` |
 | GET / PUT | `/api/progress` | `{ careerId, itemId, done }`. Tick or untick a roadmap item |
-| GET / POST | `/api/simulations` | `{ simId, score, summary, skills }`. Record an attempt |
+| GET / POST | `/api/simulations` | `{ simId, answers }`. Record an attempt; the **server computes the score** from the answers |
 | GET / POST | `/api/portfolio` | List / create items |
 | PATCH / DELETE | `/api/portfolio/:id` | Update / delete your item |
 | GET / POST | `/api/badges` | List / record earned badges |
 | GET | `/api/public/:username` | Public portfolio JSON (public items only, no auth) |
 
+### Admin API
+
+Every `/api/admin/*` call checks the role: `401` when signed out, `403` for non-admins.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/admin/stats` | Overview numbers |
+| GET | `/api/admin/users?q=&page=` | Search users (20 per page) |
+| GET / PATCH / DELETE | `/api/admin/users/:id` | Detail / `{ role: "admin" \| "user" }` or `{ suspended: boolean }` / delete user |
+| PATCH | `/api/admin/portfolio/:id` | `{ hidden: boolean }`. Hide or unhide an item on the public page |
+| GET / POST | `/api/admin/announcements` | List / post `{ title, body, active }` |
+| PATCH / DELETE | `/api/admin/announcements/:id` | Edit or switch on/off / delete |
+| GET | `/api/admin/activity` | Audit log |
+
 Every input is validated on the server: known career, roadmap item, simulation and badge ids; length limits; `https://` evidence links; per-user ownership checks.
 
-## How saving works
+## How the app is built
 
-The UI updates instantly (optimistic). `src/client/sync.js` then compares the new state with the last saved snapshot and sends only what changed to the API, in order, retrying on network errors. On page load the server reads the user's state from Postgres and renders the app with it, so there's no loading spinner and no flash of empty data.
+- **Server components load, client components interact.** The `(app)` layout reads the signed-in student's state from Postgres on the server and hands it to `<AppProvider>`. Each screen is its own route (`/careers`, `/career/[id]`, `/sim/phishing`, …), with server-side auth guards and real 404s for unknown ids. Career profiles render their content on the server; only the action row is a client component.
+- **No DOM manipulation.** Every screen and simulation is a React + TypeScript component. Navigation uses `next/link`, so moving between screens keeps the in-memory state.
+- **Optimistic saves.** A change updates the UI instantly through `commit()`. Then `src/lib/sync.ts` compares the new state with the last saved snapshot and sends only what changed to the API, in order, retrying on network errors.
+- **Shared types.** `src/lib/models.ts` derives the client data models from the Drizzle schema, so the API, the DB and the UI agree on one shape.
+- **Server-side scoring.** A finished simulation sends its *answers* (flags raised, options picked, ranking…). `src/lib/scoring.ts` validates them and computes the score. The UI uses the same module for the instant result, and the API uses it to record the attempt, so a tampered request can't post a fake score.
+
+## Admin panel
+
+Sign up or log in with an email listed in `ADMIN_EMAILS` and an **Admin** link appears in the header (`/admin`). Non-admins get a 404 there.
+
+- **Overview.** Totals (users, signups today / 7 days, quiz completions, simulation attempts, portfolio items, public portfolios), a 14-day signups chart, the most-explored careers, and attempts and average score per simulation.
+- **Users.** Search (name, username, email, university), paginate, and open a user to see their profile, roadmap progress, attempts and portfolio. From there you can make or remove an admin, suspend or unsuspend (suspending signs them out everywhere and blocks login), or delete the user.
+- **Portfolio moderation.** Lists public items. A hidden item stays in the student's portfolio, marked as hidden, but leaves `/p/username`.
+- **Announcements.** Post a banner (title and message) that shows at the top of every student's dashboard, and switch it on or off.
+- **Activity.** An audit log of every admin action.
 
 ## Testing
 
 ```bash
-npm run lint         # TypeScript type check
+npm run typecheck    # tsc --noEmit
+npm run lint         # eslint (next core-web-vitals + typescript rules)
 npm run build        # production build
 
 # end-to-end (needs a running server with a database)
 pip install playwright && playwright install chromium
-npm run build && npm start &
+npm run build
+ADMIN_EMAILS=cq-admin@example.com npm start &     # the test signs this admin account up
 python3 tests/e2e.py http://localhost:3000 ./shots
 ```
 
@@ -147,11 +188,12 @@ The end-to-end test covers:
 - all six simulations, roadmap ticks and portfolio add / public / private;
 - that everything survives a reload and shows up when logging in from a second browser;
 - the public page shows only public items;
-- browser back and forward, and logout.
+- browser back and forward, and logout;
+- the admin panel: an `ADMIN_EMAILS` account gets in, non-admins are blocked from `/admin` and `/api/admin`, suspending signs a user out and blocks login, hiding an item removes it from the public page, an announcement shows on the dashboard, and all of it lands in the audit log.
 
 ## Roadmap ideas
 
 - Password reset by email, and rate limiting on login
 - Mentor / career adviser view
-- More careers, roadmaps and simulations; server-side scoring
+- More careers, roadmaps and simulations
 - Certificates of completion and an exportable PDF portfolio

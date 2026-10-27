@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import Header from "@/components/Header";
 import { getPublicPortfolio } from "@/lib/public-portfolio";
@@ -20,7 +21,7 @@ export default async function PublicPortfolio({ params }: Props) {
   if (!data) notFound();
   return (
     <>
-      <Header right={<a className="btn sm" href="/">Try CareerQuest</a>} />
+      <Header right={<Link className="btn sm" href="/">Try CareerQuest</Link>} />
       <main id="main" className="wrap">
         <section className="pub-head">
           <span className="avatar big">{(data.name || "S")[0].toUpperCase()}</span>

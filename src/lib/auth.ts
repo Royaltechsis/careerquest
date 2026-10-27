@@ -1,14 +1,17 @@
 import "server-only";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { createHmac, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 
 export const SESSION_COOKIE = "cq_session";
 const SESSION_DAYS = 30;
 
-export interface SessionUser { id: string; email: string; username: string; name: string }
+import type { AppUser } from "./models";
+
+export type SessionUser = AppUser;
 
 function secret(): string {
   const s = process.env.SESSION_SECRET;
@@ -51,13 +54,31 @@ export async function getUser(): Promise<SessionUser | null> {
   if (!token) return null;
   const db = await getDb();
   const rows = await db
-    .select({ id: schema.users.id, email: schema.users.email, username: schema.users.username, name: schema.users.name })
+    .select({ id: schema.users.id, email: schema.users.email, username: schema.users.username, name: schema.users.name, role: schema.users.role, lastActiveAt: schema.users.lastActiveAt })
     .from(schema.sessions)
     .innerJoin(schema.users, eq(schema.sessions.userId, schema.users.id))
-    .where(and(eq(schema.sessions.id, hashToken(token)), gt(schema.sessions.expiresAt, new Date())))
+    .where(and(eq(schema.sessions.id, hashToken(token)), gt(schema.sessions.expiresAt, new Date()), isNull(schema.users.suspendedAt)))
     .limit(1);
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  const { lastActiveAt, ...user } = row;
+  // "Last active" for the admin panel, written at most every few minutes.
+  if (!lastActiveAt || Date.now() - lastActiveAt.getTime() > ACTIVE_WRITE_MS) {
+    await db.update(schema.users).set({ lastActiveAt: new Date() }).where(eq(schema.users.id, user.id));
+  }
+  return user;
 }
+
+const ACTIVE_WRITE_MS = 5 * 60 * 1000;
+
+/** Emails listed in ADMIN_EMAILS (comma-separated) become admins when they sign up or log in. */
+export function isAdminEmail(email: string): boolean {
+  const list = (process.env.ADMIN_EMAILS || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  return list.includes(email.trim().toLowerCase());
+}
+
+/** getUser, memoised for one server render (the layout and the page share one lookup). */
+export const currentUser = cache(getUser);
 
 export const USERNAME_RE = /^[a-z0-9](?:[a-z0-9_-]{1,28})[a-z0-9]$/;
 export const RESERVED_USERNAMES = new Set(["admin", "api", "login", "signup", "logout", "me", "p", "careerquest", "support", "help", "settings", "dashboard"]);

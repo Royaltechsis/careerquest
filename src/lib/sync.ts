@@ -1,19 +1,32 @@
 /*
- * Optimistic sync: the UI mutates the in-memory state instantly, then flush() diffs it
+ * Optimistic sync: the UI updates its state instantly, then flush(next) diffs the new state
  * against the last synced snapshot and sends only what changed to the API, in order.
  */
-const clone = (o) => JSON.parse(JSON.stringify(o));
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-const PF_FIELDS = ["id", "source", "title", "problem", "approach", "skills", "link", "evidence", "career", "public"];
-const pick = (p) => Object.fromEntries(PF_FIELDS.map((k) => [k, k === "public" ? !!p[k] : p[k] == null ? "" : p[k]]));
+import type { SimSubmission } from "./scoring";
+import type { ClientState, PortfolioFields, PortfolioItem } from "./models";
 
-export function createSync(getState, onError, enabled) {
-  let snap = clone(getState());
-  let chain = Promise.resolve();
+type Method = "PUT" | "POST" | "PATCH" | "DELETE";
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const pick = (p: PortfolioItem): PortfolioFields => ({
+  id: p.id, source: p.source ?? "", title: p.title ?? "", problem: p.problem ?? "", approach: p.approach ?? "",
+  skills: p.skills ?? "", link: p.link ?? "", evidence: p.evidence ?? "", career: p.career ?? "", public: !!p.public,
+});
+
+export interface Sync {
+  flush(next: ClientState): void;
+  /** One completed simulation attempt. The server re-scores the answers and keeps the history. */
+  simAttempt(sub: SimSubmission): void;
+  settled(): Promise<void>;
+  pending(): number;
+}
+
+export function createSync(initial: ClientState, onError: (msg: string) => void, enabled: boolean): Sync {
+  let snap: ClientState = initial;
+  let chain: Promise<void> = Promise.resolve();
   let pending = 0;
 
-  async function request(method, url, body, attempt = 0) {
+  async function request(method: Method, url: string, body?: unknown, attempt = 0): Promise<void> {
     try {
       const res = await fetch(url, {
         method, credentials: "same-origin",
@@ -23,26 +36,26 @@ export function createSync(getState, onError, enabled) {
       if (res.ok) return;
       if (res.status === 401) { onError("You've been logged out. Log in again to keep saving."); return; }
       if (res.status >= 500 && attempt < 2) { await sleep(700 * (attempt + 1)); return request(method, url, body, attempt + 1); }
-      const j = await res.json().catch(() => ({}));
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
       onError(j.error || "Couldn't save that change.");
-    } catch (e) {
+    } catch {
       if (attempt < 2) { await sleep(900 * (attempt + 1)); return request(method, url, body, attempt + 1); }
       onError("You're offline, so that change didn't save. Check your connection.");
     }
   }
-  function send(method, url, body) {
+  function send(method: Method, url: string, body?: unknown) {
     pending++;
     chain = chain.then(() => request(method, url, body)).finally(() => { pending--; });
   }
 
-  function flush() {
+  function flush(S: ClientState) {
     if (!enabled) return;
-    const S = getState(), prev = snap;
+    const prev = snap;
     if (S.profile && !same(S.profile, prev.profile)) send("PUT", "/api/profile", { profile: S.profile, explored: S.explored });
     else if (!same(S.explored, prev.explored)) send("PUT", "/api/profile", { explored: S.explored });
     if (S.quiz && !same(S.quiz, prev.quiz)) send("PUT", "/api/quiz", { quiz: S.quiz });
 
-    const cids = new Set([...Object.keys(S.roadmap || {}), ...Object.keys(prev.roadmap || {})]);
+    const cids = new Set([...Object.keys(S.roadmap), ...Object.keys(prev.roadmap)]);
     for (const careerId of cids) {
       const now = S.roadmap[careerId] || {}, before = prev.roadmap[careerId] || {};
       for (const itemId of new Set([...Object.keys(now), ...Object.keys(before)])) {
@@ -60,12 +73,10 @@ export function createSync(getState, onError, enabled) {
 
     const fresh = S.seenBadges.filter((x) => !prev.seenBadges.includes(x));
     if (fresh.length) send("POST", "/api/badges", { ids: fresh });
-    snap = clone(S);
+    snap = S;
   }
 
-  /** One completed simulation attempt (kept as history; best/last are derived on the server). */
-  function simAttempt(body) { if (enabled) send("POST", "/api/simulations", body); }
+  function simAttempt(sub: SimSubmission) { if (enabled) send("POST", "/api/simulations", sub); }
 
-  window.addEventListener("beforeunload", (e) => { if (pending > 0) { e.preventDefault(); e.returnValue = ""; } });
   return { flush, simAttempt, settled: () => chain, pending: () => pending };
 }
