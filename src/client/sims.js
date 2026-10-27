@@ -1,5 +1,4 @@
-/* CareerQuest simulations. Each sim: render(el, done) where done({score, summary, details, portfolio}). */
-(function () {
+/* CareerQuest simulations (client-side, DOM). Each sim: render(el, done) where done({score, summary, details, portfolio}). */
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const $ = (sel, el) => (el || document).querySelector(sel);
   const $$ = (sel, el) => Array.from((el || document).querySelectorAll(sel));
@@ -517,7 +516,7 @@
     portfolio: (p) => ({ title: "Campaign brief: student drinks brand", problem: "A student-run zobo brand had ₦50,000 and 4 weeks to win first-time customers on campus.", approach: `Defined the audience (${p[0]}), a SMART goal (${p[1]}), budget-fit channels, a conversion-focused headline and weekly cost-per-customer tracking.` })
   });
 
-  window.CQ_SIMS = [
+  export const SIMS = [
     { id: "phishing", title: "Phishing Investigation", career: "cybersecurity", mins: 6, level: "Beginner", skills: ["Phishing analysis", "Email header analysis", "Incident response"], desc: "A suspicious payroll email hit the whole office. Find the red flags and decide what to do.", run: phishing },
     { id: "data", title: "Canteen Sales Analysis", career: "data-analysis", mins: 8, level: "Beginner", skills: ["Data cleaning", "Spreadsheet analysis", "Data visualisation", "Storytelling with data"], desc: "Clean a small dataset, explore it in your browser and recommend what Mama Tolu should do.", run: dataSim },
     { id: "uiux", title: "Usability Audit", career: "ui-ux", mins: 7, level: "Beginner", skills: ["Usability heuristics", "Accessibility", "Interface critique"], desc: "Students keep failing course registration. Spot 7 usability problems and pick the right fixes.", run: uxSim },
@@ -525,4 +524,3 @@
     { id: "cloud", title: "Design an Election Cloud", career: "cloud", mins: 5, level: "Beginner", skills: ["Cloud architecture", "High availability", "Cloud security basics"], desc: "8,000 students vote in 6 hours. Design infrastructure that won't fall over.", run: cloudSim },
     { id: "marketing", title: "Campaign Brief Builder", career: "digital-marketing", mins: 5, level: "Beginner", skills: ["Campaign planning", "Copywriting", "Marketing analytics"], desc: "₦50k, 4 weeks, one zobo brand. Build a campaign that actually wins customers.", run: mktSim }
   ];
-})();

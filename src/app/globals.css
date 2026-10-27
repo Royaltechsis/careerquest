@@ -112,7 +112,7 @@ p{margin:.4em 0 .8em}
 .form fieldset{border:0;padding:0;margin:0 0 18px}
 .form legend{font-weight:800;margin-bottom:10px;font-size:1.02rem}
 .form label{display:block;font-weight:650;font-size:.92rem;margin-bottom:12px}
-input[type=text],input:not([type]),input[type=search],input[type=url],select,textarea{display:block;width:100%;margin-top:6px;padding:11px 12px;font:inherit;font-size:16px;border:2px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+input[type=text],input:not([type]),input[type=search],input[type=url],input[type=email],input[type=password],select,textarea{display:block;width:100%;margin-top:6px;padding:11px 12px;font:inherit;font-size:16px;border:2px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
 textarea{resize:vertical}
 .two{display:grid;grid-template-columns:2fr 1fr;gap:12px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
@@ -410,3 +410,8 @@ dl.brief dd{margin:0}
 
 .tok-link.flagged::after{content:""}
 h1[tabindex="-1"]:focus,main:focus{outline:none}
+
+/* auth forms */
+.form label .small{display:block;font-weight:500;margin-top:4px}
+.form .center{text-align:center;margin:12px 0 0}
+.btn[disabled]{opacity:.6;cursor:progress}

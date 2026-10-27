@@ -1,22 +1,27 @@
-/* CareerQuest app: hash router, local state, views. No build step, no network calls. */
-(function () {
-  "use strict";
-  const D = window.CQ_DATA, SIMS = window.CQ_SIMS;
-  const KEY = "cq_state_v1";
+/* CareerQuest client app: path router + views. State is loaded on the server and synced back through the API. */
+import { CQ_DATA } from "../content/data";
+import { SIMS } from "./sims";
+import { createSync } from "./sync";
+
+let started = false;
+export function startApp({ state, user }) {
+  if (started) return;
+  started = true;
+  const D = CQ_DATA;
+  const USER = user || null;
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const career = (id) => D.careers.find((c) => c.id === id);
   const sim = (id) => SIMS.find((s) => s.id === id);
   const cat = (id) => D.categories.find((c) => c.id === id);
-  const slugify = (s) => String(s || "student").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "student";
-  const uid = () => Math.random().toString(36).slice(2, 9);
+  const uid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (c ^ (Math.random() * 16) >> (c / 4)).toString(16)));
 
   /* ---------- state ---------- */
   const blank = () => ({ profile: null, explored: [], quiz: null, roadmap: {}, sims: {}, portfolio: [], seenBadges: [] });
-  let S;
-  try { S = Object.assign(blank(), JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) { S = blank(); }
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* storage full or blocked */ } checkBadges(); };
+  let S = Object.assign(blank(), state || {});
+  const sync = createSync(() => S, (msg) => toast(esc(msg)), !!USER);
+  const save = () => { sync.flush(); checkBadges(); };
 
   /* ---------- icons ---------- */
   const I = {
@@ -77,7 +82,7 @@
     const fresh = now.filter((id) => !S.seenBadges.includes(id));
     if (fresh.length) {
       S.seenBadges = S.seenBadges.concat(fresh);
-      try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { }
+      sync.flush();
       if (S.profile && fresh.some((id) => id !== "welcome")) { const b = BADGES.find((x) => x.id === fresh[fresh.length - 1]); toast(`🏅 Badge unlocked: <b>${b.name}</b>`); }
     }
   }
@@ -87,24 +92,24 @@
     const out = [];
     const goals = (S.profile && S.profile.goals) || [];
     const focus = focusCareers();
-    if (!S.quiz && focus.length < 2) out.push({ t: "Take the interest quiz", d: "10 quick questions to find careers worth exploring. Two minutes.", href: "#/quiz", cta: "Start quiz", icon: "compass" });
+    if (!S.quiz && focus.length < 2) out.push({ t: "Take the interest quiz", d: "10 quick questions to find careers worth exploring. Two minutes.", href: "/quiz", cta: "Start quiz", icon: "compass" });
     for (const cid of focus) {
       const c = career(cid);
-      if (!S.explored.includes(cid)) { out.push({ t: `Read the ${c.name} profile`, d: "See what the job really involves before going deeper.", href: `#/career/${cid}`, cta: "Open profile", icon: "map" }); continue; }
-      if (c.sim && !S.sims[c.sim]) { out.push({ t: `Try it: ${sim(c.sim).title}`, d: `A ${sim(c.sim).mins}-minute taste of real ${c.name.toLowerCase()} work.`, href: `#/sim/${c.sim}`, cta: "Start simulation", icon: "flask" }); continue; }
+      if (!S.explored.includes(cid)) { out.push({ t: `Read the ${c.name} profile`, d: "See what the job really involves before going deeper.", href: `/career/${cid}`, cta: "Open profile", icon: "map" }); continue; }
+      if (c.sim && !S.sims[c.sim]) { out.push({ t: `Try it: ${sim(c.sim).title}`, d: `A ${sim(c.sim).mins}-minute taste of real ${c.name.toLowerCase()} work.`, href: `/sim/${c.sim}`, cta: "Start simulation", icon: "flask" }); continue; }
       if (D.roadmaps[cid] && roadmapPct(cid) < 100) {
         const items = roadmapItems(cid); const next = items.find((it) => !itemDone(cid, it));
         const prefer = goals.includes("internship") ? items.slice(-3).find((it) => !itemDone(cid, it)) : null;
         const it = roadmapPct(cid) >= 40 && prefer ? prefer : next;
-        out.push({ t: `Next on your ${c.name} roadmap`, d: it.t, href: `#/roadmap/${cid}`, cta: "Open roadmap", icon: "map" });
+        out.push({ t: `Next on your ${c.name} roadmap`, d: it.t, href: `/roadmap/${cid}`, cta: "Open roadmap", icon: "map" });
       }
     }
     const simDone = Object.keys(S.sims).length;
-    if (simDone && !S.portfolio.some((p) => p.public)) out.push({ t: "Make one project public", d: "Pick your best simulation write-up and share your portfolio link.", href: "#/portfolio", cta: "Open portfolio", icon: "share" });
-    if (simDone && !S.portfolio.some((p) => p.source === "manual")) out.push({ t: "Add a real project", d: "Something you built, designed or analysed outside CareerQuest counts too.", href: "#/portfolio?add=1", cta: "Add project", icon: "folder" });
+    if (simDone && !S.portfolio.some((p) => p.public)) out.push({ t: "Make one project public", d: "Pick your best simulation write-up and share your portfolio link.", href: "/portfolio", cta: "Open portfolio", icon: "share" });
+    if (simDone && !S.portfolio.some((p) => p.source === "manual")) out.push({ t: "Add a real project", d: "Something you built, designed or analysed outside CareerQuest counts too.", href: "/portfolio?add=1", cta: "Add project", icon: "folder" });
     const unexplored = D.careers.find((c) => !S.explored.includes(c.id) && c.sim && !focus.includes(c.id)) || D.careers.find((c) => !S.explored.includes(c.id));
-    if (unexplored) out.push({ t: `Explore something different: ${unexplored.name}`, d: "Trying a few paths before committing is the smart move.", href: `#/career/${unexplored.id}`, cta: "Take a look", icon: "compass" });
-    if (!out.length) out.push({ t: "You've done it all", d: "Polish your portfolio and start applying. You've got evidence now.", href: "#/portfolio", cta: "Portfolio", icon: "star" });
+    if (unexplored) out.push({ t: `Explore something different: ${unexplored.name}`, d: "Trying a few paths before committing is the smart move.", href: `/career/${unexplored.id}`, cta: "Take a look", icon: "compass" });
+    if (!out.length) out.push({ t: "You've done it all", d: "Polish your portfolio and start applying. You've got evidence now.", href: "/portfolio", cta: "Portfolio", icon: "star" });
     return out;
   }
 
@@ -119,7 +124,7 @@
   const pill = (t, cls) => `<span class="pill ${cls || ""}">${t}</span>`;
   function careerCard(c) {
     const s = c.sim && sim(c.sim);
-    return `<a class="ccard" href="#/career/${c.id}" style="--c:${c.color}">
+    return `<a class="ccard" href="/career/${c.id}" style="--c:${c.color}">
       <span class="ccard-ic">${ic(cat(c.cat).icon)}</span>
       <span class="ccard-cat">${cat(c.cat).name}</span>
       <b class="ccard-n">${c.name}</b>
@@ -135,8 +140,8 @@
         <p class="eyebrow">For university students</p>
         <h1>Try a career <span class="hl">before</span> you choose it.</h1>
         <p class="lead">Explore real careers, do hands-on workplace simulations, follow step-by-step roadmaps and build a portfolio that proves what you can do.</p>
-        <div class="cta-row"><a class="btn big" href="#/start">Start exploring, it's free ${ic("arrow")}</a><a class="btn ghost big" href="#/careers">Browse careers</a></div>
-        <p class="muted small">No sign-up needed. Your progress stays on this device.</p>
+        <div class="cta-row"><a class="btn big" href="${USER ? "/start" : "/signup"}">Start exploring, it's free ${ic("arrow")}</a><a class="btn ghost big" href="/careers">Browse careers</a></div>
+        <p class="muted small">Free account. Your progress syncs across your devices.</p>
       </div>
       <div class="hero-art" aria-hidden="true">
         <div class="mock m1"><span class="mk-eyebrow">Mission · Cybersecurity</span><b>Spot the phishing email</b><span class="mk-line"><i class="flag">kora-mfb-support.com</i></span><span class="mk-line">Reply-To: <i class="flag">…@gmail.com</i></span><span class="mk-line"><i class="flag">URGENT: 2 hours</i></span></div>
@@ -152,16 +157,16 @@
       <h2>How it works</h2>
       <ol class="how-steps"><li><b>Tell us a little</b><span>Your course and goals. 30 seconds.</span></li><li><b>Explore or take the quiz</b><span>Find careers worth a closer look.</span></li><li><b>Do a mission</b><span>Experience the real work, learn from mistakes.</span></li><li><b>Build your proof</b><span>Roadmap progress and a portfolio you can share.</span></li></ol>
       <p class="muted">Changing your mind is part of it. Explore as many paths as you like.</p>
-      <a class="btn" href="#/start">Create my profile ${ic("arrow")}</a>
+      <a class="btn" href="${USER ? "/start" : "/signup"}">Create my profile ${ic("arrow")}</a>
     </section>`;
   }
 
   const GOALS = [["discover", "Find a career that fits me"], ["start", "Get started in a career I chose"], ["practice", "Get hands-on experience"], ["internship", "Prepare for internships / SIWES"], ["portfolio", "Build a portfolio"]];
   function vStart() {
-    const p = S.profile || {};
+    const p = S.profile || { name: USER ? USER.name : "" };
     return `<section class="narrow">
       <h1>Let's set up your quest</h1>
-      <p class="muted">Just the basics. Everything stays on this device.</p>
+      <p class="muted">Just the basics. Saved to your account, so it follows you to any device.</p>
       <form id="onb" class="card form" novalidate>
         <fieldset><legend>About you</legend>
           <label>First name <input name="name" required autocomplete="given-name" value="${esc(p.name)}" placeholder="e.g. Bunmi"></label>
@@ -188,12 +193,12 @@
       S.profile = { name, uni: String(f.get("uni") || "").trim(), course: String(f.get("course") || "").trim(), level: f.get("level"), goals: f.getAll("goals"), interests: f.getAll("interests"), created: (S.profile && S.profile.created) || Date.now() };
       save();
       if (first) toast(`Welcome, <b>${esc(name)}</b>! 🎉`);
-      location.hash = first && !S.profile.interests.length ? "#/quiz" : "#/dashboard";
+      go(first && !S.profile.interests.length ? "/quiz" : "/dashboard");
     });
   }
 
   function vDashboard() {
-    if (!S.profile) return vLanding();
+    if (!S.profile) { setTimeout(() => go("/start", true)); return ""; }
     const recs = recommendations(); const r0 = recs[0];
     const sk = skills(); const simIds = Object.keys(S.sims);
     const roadIds = Object.keys(D.roadmaps);
@@ -213,11 +218,11 @@
         <div class="stat"><b>${S.portfolio.length}</b><span>Portfolio items</span></div>
       </section>
       <div class="dash-grid">
-        <section class="card"><div class="sec-h"><h2>Your roadmaps</h2><a href="#/roadmaps">All</a></div>
-          ${shown.map((cid) => { const c = career(cid); const p = roadmapPct(cid); return `<a class="rm-row" href="#/roadmap/${cid}"><span class="rm-n"><b>${c.name}</b><span>${p}%</span></span>${bar(p, c.color)}</a>`; }).join("")}
+        <section class="card"><div class="sec-h"><h2>Your roadmaps</h2><a href="/roadmaps">All</a></div>
+          ${shown.map((cid) => { const c = career(cid); const p = roadmapPct(cid); return `<a class="rm-row" href="/roadmap/${cid}"><span class="rm-n"><b>${c.name}</b><span>${p}%</span></span>${bar(p, c.color)}</a>`; }).join("")}
         </section>
-        <section class="card"><div class="sec-h"><h2>Completed challenges</h2><a href="#/challenges">All</a></div>
-          ${simIds.length ? `<ul class="done-list">${simIds.map((id) => { const s = sim(id); const r = S.sims[id]; return s ? `<li><a href="#/sim/${id}"><b>${s.title}</b><span>${career(s.career).name}</span></a>${pill(r.best + "%", r.best >= 80 ? "ok" : "")}</li>` : ""; }).join("")}</ul>` : `<p class="empty">No simulations yet. <a href="#/challenges">Try your first one</a>; they take about 5 minutes.</p>`}
+        <section class="card"><div class="sec-h"><h2>Completed challenges</h2><a href="/challenges">All</a></div>
+          ${simIds.length ? `<ul class="done-list">${simIds.map((id) => { const s = sim(id); const r = S.sims[id]; return s ? `<li><a href="/sim/${id}"><b>${s.title}</b><span>${career(s.career).name}</span></a>${pill(r.best + "%", r.best >= 80 ? "ok" : "")}</li>` : ""; }).join("")}</ul>` : `<p class="empty">No simulations yet. <a href="/challenges">Try your first one</a>; they take about 5 minutes.</p>`}
         </section>
         <section class="card"><div class="sec-h"><h2>Skills practised</h2></div>
           ${sk.length ? `<div class="skill-cloud">${sk.map(([k, n]) => `<span class="skill">${esc(k)}${n > 1 ? ` <b>×${n}</b>` : ""}</span>`).join("")}</div><p class="muted small">Based on simulations you've completed here, not a claim of professional competence.</p>` : `<p class="empty">Skills appear here as you complete simulations.</p>`}
@@ -240,7 +245,7 @@
       </div>
       <p class="muted small" id="count" aria-live="polite"></p>
       <div class="cgrid" id="cgrid"></div>
-      <a class="quiz-banner" href="#/quiz"><b>Not sure where to start?</b><span>Take the 2-minute interest quiz →</span></a>`;
+      <a class="quiz-banner" href="/quiz"><b>Not sure where to start?</b><span>Take the 2-minute interest quiz →</span></a>`;
   }
   function bindCareers() {
     const draw = () => {
@@ -261,12 +266,12 @@
     const inFocus = S.profile && (S.profile.interests || []).includes(id);
     const list = (arr) => `<ul class="ticks">${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
     return `<section class="c-hero" style="--c:${c.color}">
-        <a class="back" href="#/careers">‹ All careers</a>
+        <a class="back" href="/careers">‹ All careers</a>
         <span class="ccard-cat">${cat(c.cat).name}</span>
         <h1>${c.name}</h1><p class="lead">${c.tagline}</p>
         <div class="cta-row">
-          ${c.roadmap ? `<a class="btn" href="#/roadmap/${c.id}">${ic("map")} Roadmap · ${roadmapPct(c.id)}%</a>` : ""}
-          ${s ? `<a class="btn ${c.roadmap ? "alt" : ""}" href="#/sim/${s.id}">${ic("flask")} Try: ${s.title}</a>` : ""}
+          ${c.roadmap ? `<a class="btn" href="/roadmap/${c.id}">${ic("map")} Roadmap · ${roadmapPct(c.id)}%</a>` : ""}
+          ${s ? `<a class="btn ${c.roadmap ? "alt" : ""}" href="/sim/${s.id}">${ic("flask")} Try: ${s.title}</a>` : ""}
           ${S.profile ? `<button type="button" class="btn ghost" id="focusBtn" aria-pressed="${!!inFocus}">${inFocus ? "★ In my focus" : "☆ Add to my focus"}</button>` : ""}
         </div>
       </section>
@@ -281,7 +286,7 @@
         <section class="card"><h2>Portfolio project ideas</h2>${list(c.projects)}</section>
         <section class="card span2"><h2>Certifications</h2>${list(c.certs)}<p class="muted small">Optional for most entry roles. Projects you can show usually matter more.</p></section>
       </div>
-      <p class="muted center">Not feeling it? That's useful to know too. <a href="#/careers">Explore another path</a>.</p>`;
+      <p class="muted center">Not feeling it? That's useful to know too. <a href="/careers">Explore another path</a>.</p>`;
   }
   function bindCareer(id) {
     const b = $("#focusBtn"); if (!b) return;
@@ -322,8 +327,8 @@
       <p class="lead">You leaned toward <b>${traits.slice(0, 3).map((k) => TRAIT_WORDS[k]).join("</b>, <b>")}</b>.</p>
       <p class="note">This is a starting point, not a verdict. Interests change, and skills grow with practice. Try a simulation to see how the work actually feels.</p>
       <div class="results">${top.map((r, i) => { const c = career(r.id); const shared = c.traits.filter((k) => traits.slice(0, 4).includes(k)); return `<div class="result card" style="--c:${c.color}"><span class="rank-badge">${i + 1}</span><div><b>${c.name}</b><p class="small">${c.tagline}${shared.length ? ` Fits your interest in ${shared.map((k) => TRAIT_WORDS[k]).join(" and ")}.` : ""}</p>${bar(Math.round((r.s / max) * 100), c.color)}
-        <div class="cta-row sm"><a class="btn sm" href="#/career/${c.id}">Explore</a>${c.sim ? `<a class="btn ghost sm" href="#/sim/${c.sim}">Try the simulation</a>` : ""}</div></div></div>`; }).join("")}</div>
-      <div class="cta-row"><a class="btn" href="${S.profile ? "#/dashboard" : "#/start"}">${S.profile ? "Go to my dashboard" : "Save results: create profile"}</a><button type="button" class="btn ghost" id="retake">Retake quiz</button></div>
+        <div class="cta-row sm"><a class="btn sm" href="/career/${c.id}">Explore</a>${c.sim ? `<a class="btn ghost sm" href="/sim/${c.sim}">Try the simulation</a>` : ""}</div></div></div>`; }).join("")}</div>
+      <div class="cta-row"><a class="btn" href="${S.profile ? "/dashboard" : "/start"}">${S.profile ? "Go to my dashboard" : "Save results: create profile"}</a><button type="button" class="btn ghost" id="retake">Retake quiz</button></div>
     </section>`;
   }
   function bindQuiz() {
@@ -335,7 +340,7 @@
   /* roadmaps */
   function vRoadmaps() {
     return `<section class="page-head"><h1>Roadmaps</h1><p class="muted">Step-by-step plans from first steps to job-ready. Tick things off as you go.</p></section>
-      <div class="cgrid">${Object.keys(D.roadmaps).map((cid) => { const c = career(cid); const p = roadmapPct(cid); const n = roadmapItems(cid).length; return `<a class="ccard" href="#/roadmap/${cid}" style="--c:${c.color}"><span class="ccard-ic">${ic(cat(c.cat).icon)}</span><span class="ccard-cat">${D.roadmaps[cid].stages.length} stages · ${n} steps</span><b class="ccard-n">${c.name}</b><span class="ccard-t">${D.roadmaps[cid].intro}</span>${bar(p, c.color)}<span class="small muted">${p}% complete</span></a>`; }).join("")}</div>`;
+      <div class="cgrid">${Object.keys(D.roadmaps).map((cid) => { const c = career(cid); const p = roadmapPct(cid); const n = roadmapItems(cid).length; return `<a class="ccard" href="/roadmap/${cid}" style="--c:${c.color}"><span class="ccard-ic">${ic(cat(c.cat).icon)}</span><span class="ccard-cat">${D.roadmaps[cid].stages.length} stages · ${n} steps</span><b class="ccard-n">${c.name}</b><span class="ccard-t">${D.roadmaps[cid].intro}</span>${bar(p, c.color)}<span class="small muted">${p}% complete</span></a>`; }).join("")}</div>`;
   }
   const TYPE = { learn: "Learn", tool: "Tool", challenge: "Challenge", project: "Project", milestone: "Milestone" };
   function vRoadmap(cid) {
@@ -343,9 +348,9 @@
     const p = roadmapPct(cid);
     const nextIdx = r.stages.findIndex((st) => !stageDone(cid, st));
     return `<section class="c-hero slim" style="--c:${c.color}">
-        <a class="back" href="#/roadmaps">‹ All roadmaps</a>
+        <a class="back" href="/roadmaps">‹ All roadmaps</a>
         <div class="rm-head"><div><span class="ccard-cat">Roadmap</span><h1>${c.name}</h1><p class="lead">${r.intro}</p></div>${ring(p, p + "% complete")}</div>
-        <div class="cta-row"><a class="btn ghost sm" href="#/career/${cid}">Career profile</a></div>
+        <div class="cta-row"><a class="btn ghost sm" href="/career/${cid}">Career profile</a></div>
       </section>
       <ol class="timeline" style="--c:${c.color}">
         ${r.stages.map((st, si) => { const done = st.items.filter((it) => itemDone(cid, it)).length; const full = done === st.items.length; return `<li class="stage ${full ? "full" : ""} ${si === nextIdx ? "current" : ""}">
@@ -355,7 +360,7 @@
             <ul class="items">${st.items.map((it) => { const d = itemDone(cid, it); const auto = it.sim && S.sims[it.sim]; return `<li class="item ${d ? "done" : ""}">
               <label><input type="checkbox" data-it="${it.id}" ${d ? "checked" : ""} ${auto ? "disabled" : ""}><span class="box">${ic("check")}</span><span class="it-t">${esc(it.t)}</span></label>
               <span class="type t-${it.type}">${TYPE[it.type]}</span>
-              ${it.sim ? `<a class="btn sm ${auto ? "ghost" : ""}" href="#/sim/${it.sim}">${auto ? `Done · ${S.sims[it.sim].best}%` : "Start ›"}</a>` : ""}</li>`; }).join("")}</ul>
+              ${it.sim ? `<a class="btn sm ${auto ? "ghost" : ""}" href="/sim/${it.sim}">${auto ? `Done · ${S.sims[it.sim].best}%` : "Start ›"}</a>` : ""}</li>`; }).join("")}</ul>
           </div></li>`; }).join("")}
       </ol>
       <p class="muted small center">Simulation steps tick themselves when you complete them. Other steps are yours to tick honestly.</p>`;
@@ -376,7 +381,7 @@
   /* simulations */
   function vChallenges() {
     return `<section class="page-head"><h1>Challenges</h1><p class="muted">Hands-on simulations of real workplace tasks. Mistakes are part of it; every one comes with feedback.</p></section>
-      <div class="sgrid">${SIMS.map((s) => { const c = career(s.career); const r = S.sims[s.id]; return `<a class="scard" href="#/sim/${s.id}" style="--c:${c.color}">
+      <div class="sgrid">${SIMS.map((s) => { const c = career(s.career); const r = S.sims[s.id]; return `<a class="scard" href="/sim/${s.id}" style="--c:${c.color}">
         <span class="scard-top"><span class="ccard-cat">${c.name}</span>${r ? pill(`Best ${r.best}%`, r.best >= 80 ? "ok" : "") : pill(`${s.mins} min`)}</span>
         <b>${s.title}</b><span class="small">${s.desc}</span>
         <span class="skill-cloud sm">${s.skills.map((k) => `<span class="skill">${k}</span>`).join("")}</span>
@@ -385,7 +390,7 @@
   function vSim(id) {
     const s = sim(id); if (!s) return vNotFound();
     const c = career(s.career);
-    return `<section class="c-hero slim" style="--c:${c.color}"><a class="back" href="#/challenges">‹ Challenges</a>
+    return `<section class="c-hero slim" style="--c:${c.color}"><a class="back" href="/challenges">‹ Challenges</a>
       <span class="ccard-cat">${c.name} · ${s.level} · ~${s.mins} min</span><h1>${s.title}</h1><p class="lead">${s.desc}</p></section>
       <div id="simRoot" class="sim"></div><div id="simResult"></div>`;
   }
@@ -394,6 +399,7 @@
     s.run($("#simRoot"), (res) => {
       const prev = S.sims[id];
       S.sims[id] = { best: Math.max(res.score, prev ? prev.best : 0), last: res.score, attempts: (prev ? prev.attempts : 0) + 1, at: Date.now() };
+      sync.simAttempt({ simId: id, score: res.score, summary: res.summary, skills: s.skills });
       let item = S.portfolio.find((p) => p.source === "sim:" + id);
       const c = career(s.career);
       if (!item) { item = { id: uid(), source: "sim:" + id, public: false, created: Date.now() }; S.portfolio.unshift(item); }
@@ -407,7 +413,7 @@
         <div class="res-details">${res.details}</div>
         <div class="folio-added"><b>${ic("folder")} Added to your portfolio</b><span class="small">Saved as a private draft. Edit the write-up or make it public anytime.</span>
           <label class="switch"><input type="checkbox" id="pubNow" ${item.public ? "checked" : ""}><span class="sw"></span><span>Show on my public portfolio</span></label></div>
-        <div class="cta-row"><button type="button" class="btn" id="again">Try again</button><a class="btn ghost" href="#/portfolio">Edit in portfolio</a><a class="btn ghost" href="${S.profile ? "#/dashboard" : "#/start"}">${S.profile ? "Dashboard" : "Save progress: create profile"}</a></div>
+        <div class="cta-row"><button type="button" class="btn" id="again">Try again</button><a class="btn ghost" href="/portfolio">Edit in portfolio</a><a class="btn ghost" href="${S.profile ? "/dashboard" : "/start"}">${S.profile ? "Dashboard" : "Save progress: create profile"}</a></div>
       </section>`;
       $("#pubNow").addEventListener("change", (e) => { item.public = e.target.checked; save(); toast(item.public ? "Now public on your portfolio" : "Now private"); });
       $("#again").addEventListener("click", () => render());
@@ -416,13 +422,7 @@
   }
 
   /* portfolio */
-  const enc = (o) => { const b = new TextEncoder().encode(JSON.stringify(o)); let s = ""; b.forEach((x) => (s += String.fromCharCode(x))); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
-  const dec = (s) => { const b = atob(s.replace(/-/g, "+").replace(/_/g, "/")); return JSON.parse(new TextDecoder().decode(Uint8Array.from(b, (c) => c.charCodeAt(0)))); };
-  function shareLink() {
-    const p = S.profile || { name: "Student" };
-    const items = S.portfolio.filter((x) => x.public).map((x) => ({ t: x.title, p: x.problem, a: x.approach, s: x.skills, l: x.link, e: x.evidence, c: x.career }));
-    return location.origin + location.pathname + "#/p/" + slugify(p.name) + "?d=" + enc({ n: p.name, u: p.uni, c: p.course, i: items });
-  }
+  function shareLink() { return location.origin + "/p/" + (USER ? USER.username : ""); }
   let editing = null;
   function vPortfolio(params) {
     if (params.get("add") === "1" && editing === null) editing = "new";
@@ -441,8 +441,8 @@
     return `<section class="page-head row"><div><h1>Portfolio</h1><p class="muted">Your evidence. Choose what the world sees.</p></div>${editing ? "" : `<button type="button" class="btn" id="addBtn">+ Add project</button>`}</section>
       ${editItem ? form(editItem) : ""}
       <section class="card share">
-        <div><b>${ic("share")} Public portfolio</b><span class="small muted">${pub} public item${pub === 1 ? "" : "s"}. The link carries your public items inside it, so it works on any device. Regenerate it after changes.</span></div>
-        ${S.profile ? `<div class="cta-row sm"><button type="button" class="btn sm" id="copyLink" ${pub ? "" : "disabled"}>Copy share link</button><a class="btn ghost sm" id="viewPub" href="#/p/${slugify(S.profile.name)}">Preview public view</a></div>` : `<a class="btn sm" href="#/start">Create profile to share</a>`}
+        <div><b>${ic("share")} Public portfolio</b><span class="small muted">${pub} public item${pub === 1 ? "" : "s"}. Anyone with your link sees your public items, always up to date.</span></div>
+        ${S.profile ? `<div class="cta-row sm"><button type="button" class="btn sm" id="copyLink" ${pub ? "" : "disabled"}>Copy share link</button><a class="btn ghost sm" id="viewPub" href="/p/${USER ? USER.username : ""}" target="_blank" rel="noopener">View public page ↗</a></div>` : `<a class="btn sm" href="/start">Create profile to share</a>`}
       </section>
       ${S.portfolio.length ? `<div class="pf-list">${S.portfolio.map((p) => `<article class="pf card ${p.public ? "is-pub" : ""}">
           <div class="pf-h"><div>${p.career ? `<span class="ccard-cat">${esc(p.career)}</span>` : ""}<h3>${esc(p.title || "Untitled")}</h3></div>
@@ -452,13 +452,13 @@
           <div class="pf-f">${p.evidence ? `<span class="small muted">${esc(p.evidence)}</span>` : ""}${p.link ? `<a class="small" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">Evidence ↗</a>` : ""}
           <span class="pf-act"><button type="button" class="link" data-edit="${p.id}">Edit</button><button type="button" class="link danger" data-del="${p.id}">Delete</button></span></div>
         </article>`).join("")}</div>`
-        : `<div class="empty card"><p><b>Nothing here yet.</b></p><p class="small">Complete a <a href="#/challenges">simulation</a> and it lands here automatically, or add your own project.</p></div>`}`;
+        : `<div class="empty card"><p><b>Nothing here yet.</b></p><p class="small">Complete a <a href="/challenges">simulation</a> and it lands here automatically, or add your own project.</p></div>`}`;
   }
   function bindPortfolio() {
     const add = $("#addBtn"); if (add) add.addEventListener("click", () => { editing = "new"; render(); $("#pfForm input").focus(); });
     const f = $("#pfForm");
     if (f) {
-      $("#pfCancel").addEventListener("click", () => { editing = null; if (location.hash.includes("add=1")) location.hash = "#/portfolio"; else render(); });
+      $("#pfCancel").addEventListener("click", () => { editing = null; if (location.search.includes("add=1")) go("/portfolio", true); else render(); });
       f.addEventListener("submit", (e) => {
         e.preventDefault(); const d = new FormData(f);
         const title = String(d.get("title") || "").trim(); const link = String(d.get("link") || "").trim();
@@ -468,7 +468,7 @@
         if (!it) { it = { id: uid(), source: "manual", created: Date.now() }; S.portfolio.unshift(it); }
         Object.assign(it, { title, problem: String(d.get("problem") || "").trim(), approach: String(d.get("approach") || "").trim(), skills: String(d.get("skills") || "").trim(), link, public: !!d.get("public"), updated: Date.now() });
         editing = null; save(); toast("Project saved");
-        if (location.hash.includes("add=1")) location.hash = "#/portfolio"; else render();
+        if (location.search.includes("add=1")) go("/portfolio", true); else render();
       });
     }
     $$("[data-pub]").forEach((cb) => cb.addEventListener("change", () => { const it = S.portfolio.find((p) => p.id === cb.dataset.pub); it.public = cb.checked; save(); render(); }));
@@ -480,48 +480,48 @@
       try { await navigator.clipboard.writeText(url); toast("Share link copied ✓"); }
       catch (e) { prompt("Copy your share link:", url); }
     });
-    const vp = $("#viewPub"); if (vp) vp.href = "#/p/" + slugify(S.profile.name) + "?d=" + shareLink().split("?d=")[1];
   }
-  function vPublic(slug, params) {
-    let data = null;
-    if (params.get("d")) { try { data = dec(params.get("d")); } catch (e) { data = null; } }
-    else if (S.profile && slugify(S.profile.name) === slug) data = { n: S.profile.name, u: S.profile.uni, c: S.profile.course, i: S.portfolio.filter((x) => x.public).map((x) => ({ t: x.title, p: x.problem, a: x.approach, s: x.skills, l: x.link, e: x.evidence, c: x.career })) };
-    if (!data) return `<section class="narrow center"><h1>Portfolio not found</h1><p class="muted">This link is incomplete or was copied before any items were public. Ask the owner for a fresh share link.</p><a class="btn" href="#/">Visit CareerQuest</a></section>`;
-    const safeLink = (l) => (/^https?:\/\//.test(l || "") ? l : "");
-    return `<section class="pub-head"><span class="avatar big">${esc((data.n || "S")[0].toUpperCase())}</span><div><p class="eyebrow">Portfolio</p><h1>${esc(data.n)}</h1><p class="muted">${[data.c, data.u].filter(Boolean).map(esc).join(" · ")}</p></div></section>
-      ${(data.i || []).length ? `<div class="pf-list">${data.i.map((x) => `<article class="pf card">${x.c ? `<span class="ccard-cat">${esc(x.c)}</span>` : ""}<h3>${esc(x.t)}</h3>${x.p ? `<p><b>Problem.</b> ${esc(x.p)}</p>` : ""}${x.a ? `<p><b>Approach.</b> ${esc(x.a)}</p>` : ""}${x.s ? `<div class="skill-cloud sm">${String(x.s).split(",").map((k) => k.trim()).filter(Boolean).map((k) => `<span class="skill">${esc(k)}</span>`).join("")}</div>` : ""}<div class="pf-f">${x.e ? `<span class="small muted">${esc(x.e)}</span>` : ""}${safeLink(x.l) ? `<a class="small" href="${esc(safeLink(x.l))}" target="_blank" rel="noopener noreferrer">Evidence ↗</a>` : ""}</div></article>`).join("")}</div>` : `<p class="empty card">No public projects yet.</p>`}
-      <p class="muted small center">Built with CareerQuest. Simulation scores reflect practice tasks, not professional certification.</p>`;
-  }
-
   function vProfile() {
-    if (!S.profile) { location.hash = "#/start"; return ""; }
-    return vStart() + `<section class="narrow"><div class="card danger-zone"><h2>Start over</h2><p class="small muted">Deletes your profile, progress and portfolio from this device.</p><button type="button" class="btn danger" id="reset">Reset everything</button></div></section>`;
+    if (!S.profile) { setTimeout(() => go("/start", true)); return ""; }
+    return vStart() + `<section class="narrow"><div class="card"><h2>Account</h2><p class="small muted">Signed in as <b>${esc(USER.email)}</b> · public page <a href="/p/${esc(USER.username)}" target="_blank" rel="noopener">/p/${esc(USER.username)}</a></p><button type="button" class="btn ghost" id="logout">Log out</button></div><div class="card danger-zone"><h2>Start over</h2><p class="small muted">Deletes your profile answers, quiz, roadmap progress, simulation history, badges and portfolio. Your account stays.</p><button type="button" class="btn danger" id="reset">Reset everything</button></div></section>`;
   }
-  function bindProfile() { bindStart(); const r = $("#reset"); r && r.addEventListener("click", () => { if (confirm("Delete all your CareerQuest data on this device?")) { localStorage.removeItem(KEY); S = blank(); location.hash = "#/"; } }); }
+  function bindProfile() { bindStart(); const r = $("#reset"); r && r.addEventListener("click", async () => {
+      if (!confirm("Delete all your CareerQuest progress? Your account stays.")) return;
+      await sync.settled();
+      const res = await fetch("/api/state", { method: "DELETE" });
+      if (res.ok) location.assign("/start"); else toast("Couldn't reset right now. Try again.");
+    });
+    const lo = $("#logout");
+    lo && lo.addEventListener("click", async () => { await sync.settled(); await fetch("/api/auth/logout", { method: "POST" }); location.assign("/"); });
+  }
 
-  function vNotFound() { return `<section class="narrow center"><h1>Lost the trail</h1><p class="muted">That page doesn't exist.</p><a class="btn" href="#/">Go home</a></section>`; }
+  function vNotFound() { return `<section class="narrow center"><h1>Lost the trail</h1><p class="muted">That page doesn't exist.</p><a class="btn" href="/">Go home</a></section>`; }
 
   /* ---------- router ---------- */
   const TABS = [["dashboard", "Home", "home"], ["careers", "Careers", "compass"], ["challenges", "Challenges", "flask"], ["roadmaps", "Roadmaps", "map"], ["portfolio", "Portfolio", "folder"]];
   function chrome(active, isPublic) {
-    const tabs = TABS.map(([r, t, i]) => `<a href="#/${r}" class="${active === r ? "on" : ""}" ${active === r ? 'aria-current="page"' : ""}>${ic(i)}<span>${t}</span></a>`).join("");
+    const tabs = TABS.map(([r, t, i]) => `<a href="/${r}" class="${active === r ? "on" : ""}" ${active === r ? 'aria-current="page"' : ""}>${ic(i)}<span>${t}</span></a>`).join("");
     $("#topnav").innerHTML = isPublic ? "" : tabs;
     $("#tabbar").innerHTML = isPublic ? "" : tabs;
     $("#tabbar").hidden = isPublic;
-    $("#me").innerHTML = S.profile ? `<a class="avatar" href="#/me" aria-label="Your profile">${esc(S.profile.name[0].toUpperCase())}</a>` : (isPublic ? `<a class="btn sm" href="#/">Try CareerQuest</a>` : `<a class="btn sm" href="#/start">Get started</a>`);
+    $("#me").innerHTML = USER
+      ? `<a class="avatar" href="/me" aria-label="Your profile">${esc(((S.profile && S.profile.name) || USER.name || "?")[0].toUpperCase())}</a>`
+      : `<a class="btn ghost sm" href="/login">Log in</a> <a class="btn sm" href="/signup">Sign up</a>`;
   }
+  const SPA_ROUTES = new Set(["", "dashboard", "start", "me", "careers", "career", "quiz", "roadmaps", "roadmap", "challenges", "sim", "portfolio"]);
+  const PROTECTED = new Set(["dashboard", "start", "me", "quiz", "roadmaps", "roadmap", "challenges", "sim", "portfolio"]);
   let lastRoute = "";
   function render() {
-    const raw = location.hash.replace(/^#\/?/, "");
-    const [path, qs] = raw.split("?");
-    const params = new URLSearchParams(qs || "");
+    const path = location.pathname.replace(/^\/+|\/+$/g, "");
+    const params = new URLSearchParams(location.search);
     const [r, arg] = path.split("/");
+    if (!USER && PROTECTED.has(r)) { location.assign("/login?next=" + encodeURIComponent(location.pathname + location.search)); return; }
     const main = $("#main");
     let html = "", bind = null, active = r || "dashboard";
     if (r !== "portfolio") editing = null;
     if (r !== "quiz" && lastRoute === "quiz" && qi >= D.quiz.length) { qi = 0; answers = []; }
     switch (r || "") {
-      case "": html = S.profile ? vDashboard() : vLanding(); active = S.profile ? "dashboard" : ""; break;
+      case "": if (USER && !S.profile) { setTimeout(() => go("/start", true)); html = ""; } else html = S.profile ? vDashboard() : vLanding(); active = S.profile ? "dashboard" : ""; break;
       case "dashboard": html = vDashboard(); if (!S.profile) active = ""; break;
       case "start": html = vStart(); bind = bindStart; active = ""; break;
       case "me": html = vProfile(); bind = bindProfile; active = ""; break;
@@ -533,10 +533,9 @@
       case "challenges": html = vChallenges(); break;
       case "sim": html = vSim(arg); bind = () => bindSim(arg); active = "challenges"; break;
       case "portfolio": html = vPortfolio(params); bind = bindPortfolio; break;
-      case "p": html = vPublic(arg, params); active = "p"; break;
       default: html = vNotFound();
     }
-    chrome(active, r === "p");
+    chrome(active, false);
     main.innerHTML = html;
     if (bind && main.firstElementChild) bind();
     const routeKey = r + "/" + (arg || "");
@@ -547,7 +546,20 @@
     }
     lastRoute = r === "quiz" ? "quiz" : routeKey;
   }
-  window.addEventListener("hashchange", render);
+  /* ---------- client-side navigation ---------- */
+  function go(href, replace) { history[replace ? "replaceState" : "pushState"](history.state, "", href); render(); }
+  document.addEventListener("click", (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = e.target.closest && e.target.closest("a[href]");
+    if (!a || a.target || a.hasAttribute("download")) return;
+    const url = new URL(a.href, location.href);
+    if (url.origin !== location.origin || !SPA_ROUTES.has(url.pathname.split("/")[1] || "")) return;
+    if (url.pathname === location.pathname && url.search === location.search && url.hash) return;
+    e.preventDefault();
+    go(url.pathname + url.search);
+  });
+  window.addEventListener("popstate", render);
+  window.CareerQuest = { pendingSaves: () => sync.pending(), saved: () => sync.settled() }; // handy for debugging and e2e tests
   render();
   checkBadges();
-})();
+}

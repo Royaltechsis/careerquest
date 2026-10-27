@@ -1,5 +1,7 @@
-/* CareerQuest content: careers, roadmaps, quiz. Plain data, no build step. */
-window.CQ_DATA = (function () {
+/* CareerQuest content: careers, roadmaps, quiz. Shared by the server (validation, public pages) and the client. */
+import type { CareerData, QuizQuestion } from "./types";
+
+export const CQ_DATA: CareerData = (function (): CareerData {
   const categories = [
     { id: "security", name: "Security", icon: "shield" },
     { id: "data", name: "Data & AI", icon: "chart" },
@@ -275,7 +277,7 @@ window.CQ_DATA = (function () {
     lead: ["product-management", "business-analyst"]
   };
 
-  const quiz = [
+  const quiz: QuizQuestion[] = [
     { q: "A group project lands. Which part do you grab first?", o: [
       { t: "Building the actual thing", w: { build: 2 } },
       { t: "Making it look and feel good", w: { create: 2 } },
