@@ -415,3 +415,45 @@ h1[tabindex="-1"]:focus,main:focus{outline:none}
 .form label .small{display:block;font-weight:500;margin-top:4px}
 .form .center{text-align:center;margin:12px 0 0}
 .btn[disabled]{opacity:.6;cursor:progress}
+
+/* ---------- announcements (student dashboard) ---------- */
+.announce{display:flex;flex-direction:column;gap:2px;background:var(--sun);border:2px solid var(--line);border-radius:14px;padding:12px 14px;margin:0 0 14px;box-shadow:var(--sh)}
+.announce b{font-weight:850}
+.announce span{font-size:.92rem}
+
+/* ---------- admin panel ---------- */
+.admin-badge{display:inline-flex;align-items:center;min-height:30px;padding:2px 10px;margin-right:8px;border:2px solid var(--line);border-radius:99px;background:var(--lilac);font-size:.8rem;font-weight:800;text-decoration:none;vertical-align:middle}
+.admin-nav{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;margin:4px 0 8px;scrollbar-width:none}
+.admin-nav a{text-decoration:none;display:inline-flex;align-items:center}
+.admin h1{font-size:clamp(1.5rem,4.5vw,2.1rem)}
+.admin .stats{grid-template-columns:repeat(2,1fr)}
+.admin .stat small{display:block;font-size:.78rem;color:var(--ink2);font-weight:650}
+.admin .dtable th,.admin .dtable td{text-align:left;padding:8px 10px;vertical-align:top}
+.admin .dtable thead th{border-top:0;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--ink2)}
+.admin .dtable td.num,.admin .dtable th.num{text-align:right}
+.admin .dtable a{font-weight:750}
+.admin-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:0 16px}
+.bars{display:flex;align-items:flex-end;gap:4px;height:120px;padding-top:8px}
+.bars .bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}
+.bars .bar i{display:block;width:100%;background:var(--coral);border:1.5px solid var(--line);border-radius:5px 5px 0 0;min-height:2px}
+.bars .bar b{font-size:.68rem;font-weight:800;margin-bottom:2px}
+.bars-x{display:flex;gap:4px;margin-top:4px}
+.bars-x span{flex:1;text-align:center;font-size:.62rem;color:var(--ink2);min-width:0;overflow:hidden;white-space:nowrap}
+.hrow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:6px 0;font-size:.92rem}
+.hrow .meter{grid-column:1/-1}
+.search-row{display:flex;gap:8px;margin:0 0 12px}
+.search-row input{flex:1;min-width:0;min-height:44px;padding:8px 12px;border:2px solid var(--line);border-radius:12px;font:inherit;background:#fff}
+.pager{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:10px 0}
+.pill.warn{background:#FFD9D2}
+.pill.admin{background:var(--lilac)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.92rem;margin:0}
+.kv dt{color:var(--ink2);font-weight:650}
+.kv dd{margin:0}
+.mod-item .cta-row{margin-top:8px}
+.ann-item{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:flex-start}
+.ann-item p{margin:.2em 0}
+.admin .form-ok{color:var(--good);font-weight:700;min-height:1.2em}
+@media (min-width:760px){
+  .admin .stats{grid-template-columns:repeat(4,1fr)}
+  .admin-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

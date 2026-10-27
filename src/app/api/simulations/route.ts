@@ -1,7 +1,8 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import { SIM_IDS } from "@/content/catalog";
-import { fail, ok, readJson, str, strList, withUser } from "@/lib/http";
+import { simById } from "@/content/sims";
+import { fail, ok, readJson, withUser } from "@/lib/http";
+import { parseSubmission, scoreSim } from "@/lib/scoring";
 
 export async function GET() {
   return withUser(async (user) => {
@@ -11,19 +12,20 @@ export async function GET() {
   });
 }
 
-/** Record one completed simulation attempt (score 0–100, summary, skills practised). */
+/**
+ * Record one completed simulation attempt. The client sends its answers ({ simId, answers });
+ * the server validates them and computes the score itself with the same scoring module the UI uses.
+ */
 export async function POST(req: Request) {
   return withUser(async (user) => {
     const body = await readJson(req);
-    const simId = str(body?.simId, 40);
-    if (!(SIM_IDS as readonly string[]).includes(simId)) return fail("Unknown simulation");
-    const score = Math.round(Number(body?.score));
-    if (!Number.isFinite(score) || score < 0 || score > 100) return fail("Score must be 0–100");
-    const answers = body?.answers ?? null;
-    if (answers && JSON.stringify(answers).length > 20000) return fail("Answers too large");
+    if (body && JSON.stringify(body).length > 20000) return fail("Answers too large");
+    const sub = parseSubmission(body?.simId, body?.answers);
+    if (!sub) return fail(typeof body?.simId === "string" && simById(body.simId) ? "Those answers don't look like a finished attempt." : "Unknown simulation");
+    const { score, summary } = scoreSim(sub);
     const db = await getDb();
     const [row] = await db.insert(schema.simulationAttempts)
-      .values({ userId: user.id, simId, score, summary: str(body?.summary, 1000), skills: strList(body?.skills, undefined, 12), answers })
+      .values({ userId: user.id, simId: sub.simId, score, summary, skills: simById(sub.simId)!.skills, answers: sub.answers })
       .returning();
     return ok({ attempt: row }, 201);
   });

@@ -6,6 +6,9 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
+  role: text("role").$type<"user" | "admin">().notNull().default("user"),
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -60,6 +63,8 @@ export const portfolioItems = pgTable("portfolio_items", {
   evidence: text("evidence").notNull().default(""),
   career: text("career").notNull().default(""),
   isPublic: boolean("is_public").notNull().default(false),
+  // Set by an admin to take a public item off the student's public page (moderation).
+  hiddenAt: timestamp("hidden_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("portfolio_user_idx").on(t.userId)]);
@@ -69,3 +74,25 @@ export const badges = pgTable("badges", {
   badgeId: text("badge_id").notNull(),
   earnedAt: timestamp("earned_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.userId, t.badgeId] })]);
+
+/** Banner messages admins post to every student's dashboard. */
+export const announcements = pgTable("announcements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  active: boolean("active").notNull().default(true),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Every admin action, newest first on /admin/activity. */
+export const auditLog = pgTable("audit_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+  actorEmail: text("actor_email").notNull(),
+  action: text("action").notNull(),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull().default(""),
+  detail: text("detail").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("audit_log_created_idx").on(t.createdAt)]);

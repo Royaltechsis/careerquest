@@ -4,7 +4,10 @@ Usage:  python tests/e2e.py http://localhost:3000 ./shots
 Needs:  pip install playwright && playwright install chromium   (or set CHROMIUM_PATH)
 Covers: signup -> onboarding -> quiz -> careers search -> all 6 simulations -> roadmap -> portfolio,
         then proves everything was saved to the DB (reload, log in on a "second device"), the public
-        portfolio page, browser back/forward, and logout.
+        portfolio page, browser back/forward, the admin panel, and logout.
+Admin:  start the server with ADMIN_EMAILS containing ADMIN_EMAIL (default cq-admin@example.com); the test
+        signs that account up (or logs in if it already exists) and checks roles, suspension, moderation
+        and announcements. Set ADMIN_PASSWORD if that account already exists with another password.
 """
 import asyncio, json, os, sys, time
 from playwright.async_api import async_playwright
@@ -13,6 +16,8 @@ BASE = sys.argv[1].rstrip("/"); OUT = sys.argv[2]
 os.makedirs(OUT, exist_ok=True)
 USER = "e2e" + str(int(time.time()))[-6:]
 EMAIL, PW = USER + "@example.com", "correct-horse-1"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "cq-admin@example.com")
+ADMIN_PW = os.environ.get("ADMIN_PASSWORD", "admin-horse-12")
 errs = []; checks = []
 
 def check(name, cond, extra=""):
@@ -140,6 +145,69 @@ async def main():
         check("public page shows only public items", "Readers Nook" in titles and "Private draft" not in titles and "Phishing" in " ".join(titles), titles)
         await p3.screenshot(path=f"{OUT}/12_public.png", full_page=True)
         r = await p3.goto(BASE + "/p/nobody-here-xyz"); check("unknown public portfolio 404", r.status == 404, r.status)
+
+
+        # ---------- admin panel ----------
+        # (requests go through the student's cookies without loading a page, so the expected 404/403 don't log console errors)
+        r = await ctx.request.get(BASE + "/admin")
+        check("non-admin gets 404 on /admin", r.status == 404, r.status)
+        r = await ctx.request.get(BASE + "/api/admin/users")
+        check("non-admin blocked from /api/admin", r.status == 403, r.status)
+        # a second student, who will be suspended
+        ctx5 = await phone(); p5 = await ctx5.new_page()
+        p5.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
+        await p5.goto(BASE + "/signup")
+        await p5.fill("input[name=name]", "Tolu"); await p5.fill("input[name=username]", USER + "b")
+        await p5.fill("input[name=email]", USER + "b@example.com"); await p5.fill("input[name=password]", PW)
+        await p5.click("button:has-text('Create account')"); await p5.wait_for_url("**/start")
+        # the admin (listed in ADMIN_EMAILS) signs up, or logs in on later runs
+        ctx6 = await phone(); pa = await ctx6.new_page()
+        pa.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
+        pa.on("pageerror", lambda e: errs.append("admin pageerror: " + str(e)))
+        await pa.goto(BASE + "/signup")
+        await pa.fill("input[name=name]", "Admin"); await pa.fill("input[name=username]", "cqadmin" + USER[-4:])
+        await pa.fill("input[name=email]", ADMIN_EMAIL); await pa.fill("input[name=password]", ADMIN_PW)
+        await pa.click("button:has-text('Create account')"); await pa.wait_for_timeout(1200)
+        if "/start" not in pa.url:
+            await pa.goto(BASE + "/login"); await pa.fill("input[name=email]", ADMIN_EMAIL); await pa.fill("input[name=password]", ADMIN_PW)
+            await pa.click("button:has-text('Log in')"); await pa.wait_for_timeout(1200)
+        r = await pa.goto(BASE + "/admin"); await pa.wait_for_timeout(300)
+        check("ADMIN_EMAILS account opens the admin panel", r.status == 200 and "Overview" in (await pa.text_content("h1")), r.status)
+        await pa.screenshot(path=f"{OUT}/14_admin_overview.png", full_page=True)
+        w = await pa.evaluate("document.documentElement.scrollWidth")
+        if w > 390: errs.append(f"overflow admin overview: {w}")
+        st = await pa.evaluate("fetch('/api/admin/stats').then(r => r.status)")
+        check("admin can call /api/admin", st == 200, st)
+        # users: search, open, suspend
+        await pa.goto(BASE + "/admin/users?q=" + USER + "b"); await pa.wait_for_timeout(300)
+        await pa.click(f"#usersTable a:has-text('Tolu')"); await pa.wait_for_url("**/admin/users/*")
+        await pa.click("#suspendBtn"); await pa.wait_for_function("document.querySelector('#suspendBtn') && document.querySelector('#suspendBtn').textContent.includes('Unsuspend')", timeout=10000)
+        await pa.screenshot(path=f"{OUT}/15_admin_user.png", full_page=True)
+        w = await pa.evaluate("document.documentElement.scrollWidth")
+        if w > 390: errs.append(f"overflow admin user: {w}")
+        await p5.goto(BASE + "/start"); await p5.wait_for_timeout(300)
+        check("suspending signs the user out", "/login" in p5.url, p5.url)
+        await p5.fill("input[name=email]", USER + "b"); await p5.fill("input[name=password]", PW)
+        await p5.click("button:has-text('Log in')"); await p5.wait_for_timeout(800)
+        err = (await p5.text_content(".form-err")) or ""
+        check("suspended user can't log in", "/login" in p5.url and "suspended" in err.lower(), err)
+        # moderation: hide a public item, it leaves the public page
+        await pa.goto(BASE + "/admin/portfolio"); await pa.wait_for_timeout(300)
+        item = pa.locator(f"article.mod-item:has(a[href='/p/{USER}']):has(h3:text-is('Readers Nook'))")
+        await item.locator("button:has-text('Hide')").click(); await pa.wait_for_timeout(1000)
+        await p3.goto(BASE + "/p/" + USER); await p3.wait_for_timeout(300)
+        titles = await p3.locator(".pf h3").all_text_contents()
+        check("hidden item leaves the public page", "Readers Nook" not in titles and "Phishing incident investigation" in titles, titles)
+        # announcements
+        note = "E2E notice " + USER
+        await pa.goto(BASE + "/admin/announcements"); await pa.fill("#annForm input[name=title]", note)
+        await pa.fill("#annForm textarea[name=body]", "Check the new roadmap stages.")
+        await pa.click("#annForm button[type=submit]"); await pa.wait_for_selector(f"h3:has-text('{note}')", timeout=10000)
+        await go("/dashboard")
+        check("announcement shows on the dashboard", note in " ".join(await pg.locator(".announce").all_text_contents()))
+        await pa.goto(BASE + "/admin/activity"); await pa.wait_for_timeout(300)
+        act = await pa.text_content("#activityTable")
+        check("admin actions are in the audit log", all(w in act for w in ["Suspended", "Hid portfolio item", "Posted announcement"]))
 
         # logout
         await go("/me"); await pg.click("#logout"); await pg.wait_for_url(BASE + "/"); await pg.wait_for_timeout(300)

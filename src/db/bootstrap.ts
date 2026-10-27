@@ -79,4 +79,29 @@ CREATE TABLE IF NOT EXISTS "badges" (
   CONSTRAINT "badges_user_id_badge_id_pk" PRIMARY KEY("user_id","badge_id"),
   CONSTRAINT "badges_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE cascade
 );
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "role" text DEFAULT 'user' NOT NULL;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "suspended_at" timestamp with time zone;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "last_active_at" timestamp with time zone;
+ALTER TABLE "portfolio_items" ADD COLUMN IF NOT EXISTS "hidden_at" timestamp with time zone;
+CREATE TABLE IF NOT EXISTS "announcements" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "title" text NOT NULL,
+  "body" text DEFAULT '' NOT NULL,
+  "active" boolean DEFAULT true NOT NULL,
+  "created_by" uuid,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "announcements_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "users"("id") ON DELETE set null
+);
+CREATE TABLE IF NOT EXISTS "audit_log" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "actor_id" uuid,
+  "actor_email" text NOT NULL,
+  "action" text NOT NULL,
+  "target_type" text NOT NULL,
+  "target_id" text DEFAULT '' NOT NULL,
+  "detail" text DEFAULT '' NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "audit_log_actor_id_users_id_fk" FOREIGN KEY ("actor_id") REFERENCES "users"("id") ON DELETE set null
+);
+CREATE INDEX IF NOT EXISTS "audit_log_created_idx" ON "audit_log" ("created_at");
 `;

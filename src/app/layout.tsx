@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CareerQuest · Try a career before you choose it",
+  title: { default: "CareerQuest · Try a career before you choose it", template: "%s · CareerQuest" },
   description: "Explore careers, do hands-on workplace simulations, follow roadmaps and build a portfolio before graduation.",
   openGraph: {
     title: "CareerQuest · Try a career before you choose it",

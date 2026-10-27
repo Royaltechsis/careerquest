@@ -6,10 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "tsc --noEmit",
+    "lint": "eslint .",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "test:e2e": "python3 tests/e2e.py http://localhost:3000 ./shots"
+    "test:e2e": "python3 tests/e2e.py http://localhost:3000 ./shots",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
@@ -25,7 +26,9 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "drizzle-kit": "^0.31.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.3"
   },
   "engines": {
     "node": ">=20"
