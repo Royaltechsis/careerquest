@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+# test output / screenshots
+shots/
+test-results/
+playwright-report/
+*.png
+!favicon.png
+# python
+__pycache__/
+*.pyc
+.venv/
+# env & editors
+.env
+.env*.local
+.vercel
+.DS_Store
+.vscode/
+.idea/
+*.log
